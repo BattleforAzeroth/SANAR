@@ -1,0 +1,250 @@
+Metadata-Version: 2.1
+Name: fairseq
+Version: 1.0.0a0+f3ffad1
+Summary: Facebook AI Research Sequence-to-Sequence Toolkit
+Home-page: https://github.com/pytorch/fairseq
+License: UNKNOWN
+Platform: UNKNOWN
+Classifier: Intended Audience :: Science/Research
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Description-Content-Type: text/markdown
+
+# NACC
+Non-Autoregressive Code Completion
+
+### Motivation experiments
+
+- Generation order 
+
+    Auto-regressive generation results (left to right & right to left)
+
+    | Order | BLEU4 | EM Accuracy | Edit Similarity |
+    | ---- | ---- | ---- | ---- |
+    | L2R | 21.93 | 16.24 | 62.73 |
+    | R2L | 24.52 | 16.07 | 62.82 |
+
+    We count the examples where can only be correctly handled by L2R generation or R2L generation:
+
+    |  |  | percentage |
+    | ---- | ---- | ---- |
+    | Only L2R | EM |  2.65% |
+    |       | Edit-similarity > 0.5 | 4.70% |
+    | Only R2L | EM |  2.47% |
+    |        | Edit-similarity > 0.5 | 5.04% |
+    | Both | EM |  13.59% |
+    |      | Edit-similarity > 0.5 | 74.95% |
+
+- Generation dependency analysis
+  We conduct a experiment to analyze the token dependency in the target token sequence in the full-line code generation task, and compare the results with the natural language generation (NMT) task.
+  
+![image](dependency_res.png)
+
+
+
+### Requirements
+* Python >= 3.7
+* Pytorch >= 1.5.0
+* Fairseq 1.0.0a0
+
+
+### Dataset
+
+`/var/data/liufang/dataset/nat_data/`
+
+PY150: 100,000 training programs, 50,000 testing programs
+
+JAVA-github: The java corpus data is collected by MSR 2013 PAPER [Mining Source Code Repositories at Massive Scale
+using Language Modeling](https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=6624029). We follow ICSE 2020 paper [Big Code != Big Vocabulary:
+Open-Vocabulary Models for Source Code](https://arxiv.org/pdf/2003.07914.pdf) to split the valid and test projects, and sample other 1k projects for training projects.
+
+
+### Preparation
+
+- data and processing code path: `/var/data/liufang/dataset/nat_data/`
+- Run `python_tokenizing.py/java_tokenizing.py` to tokenize the programs and save the token and type data instance.
+
+
+Binarize the training data.
+
+```
+input_dir=path_to_raw_text_data
+data_dir=path_to_binarized_output
+src=source_language
+tgt=target_language
+
+token-type:
+
+python3 fairseq_cli/preprocess.py --source-lang xtoken --target-lang ytype --nwordstgt 50000 --nwordssrc 50000  --trainpref /var/data/liufang/dataset/nat_data/nat_java_data/token_and_type/train --testpref /var/data/liufang/dataset/nat_data/nat_java_data/token_and_type/eval --destdir ./data/java_token_and_type/ --workers 60 
+
+token-token:
+
+python3 fairseq_cli/preprocess.py --source-lang xtoken --target-lang ytoken --nwordstgt 50000 --nwordssrc 50000  --trainpref /var/data/liufang/dataset/nat_data/nat_java_data/token_and_type/train --testpref /var/data/liufang/dataset/nat_data/nat_java_data/token_and_type/test --validpref /var/data/liufang/dataset/nat_data/nat_java_data/token_and_type/eval --destdir ./data/java_token_and_type/ --workers 60 --joined-dictionary
+```
+
+
+
+## Baseline 
+ 
+
+- Autoregressive Transformer
+
+- Non-autoregressive Transformer
+    - CMLM
+    - GLAT
+
+**Change environment:** 
+Run `pip install --editable ./` at:
+- AT, CMLM: `/var/data/liufang/fairseq/`
+- NACC, GLAT: `/var/data/liufang/NAR_code_completion/`
+
+### Train
+
+- AT
+
+```
+cd /var/data/liufang/
+
+fairseq-train  fairseq/py150_token_and_type \
+--source-lang xtoken --target-lang ytoken \
+--arch transformer --share-decoder-input-output-embed \
+--optimizer adam --adam-betas '(0.9, 0.98)' --clip-norm 0.0 \
+--lr 5e-5 --lr-scheduler inverse_sqrt --warmup-updates 4000 \
+--dropout 0.1 --weight-decay 0.01 \
+--criterion label_smoothed_cross_entropy --label-smoothing 0.1 \
+--max-tokens 15360 --max-update 500000 --eval-bleu \
+--valid-subset test  --eval-bleu-remove-bpe \
+--tokenizer space --save-dir fairseq/saved_models/checkpoints_at_transformer \
+--best-checkpoint-metric bleu --maximize-best-checkpoint-metric \
+--skip-invalid-size-inputs-valid-test --max-tokens-valid 4096
+
+```
+
+- CMLM
+```
+cd /var/data/liufang/
+
+fairseq-train \
+fairseq/py150_token_and_type/ \
+--save-dir fairseq/checkpoint_cmlm \
+--task translation_lev \
+--criterion nat_loss \
+--arch cmlm_transformer \
+--noise random_mask \
+--share-all-embeddings \
+--optimizer adam --adam-betas '(0.9,0.98)' \
+--lr 5e-5 --lr-scheduler inverse_sqrt \
+--warmup-updates 10000 \
+--warmup-init-lr '1e-07' --label-smoothing 0.1 \
+--dropout 0.3 --weight-decay 0.01 \
+--decoder-learned-pos \
+--encoder-learned-pos \
+--log-interval 1000 \
+--fixed-validation-seed 7 \
+--max-tokens 16384 --eval-bleu --eval-bleu-remove-bpe \
+--max-update 3000000 --valid-subset test --skip-invalid-size-inputs-valid-test
+
+```
+
+- GLAT
+
+```
+cd /var/data/liufang/GLAT/
+
+python3 train.py ./data/java_token_and_type --arch glat --noise full_mask --share-all-embeddings --source-lang xtoken --target-lang ytoken \
+--criterion glat_loss --label-smoothing 0.1 --lr 5e-5 \
+--warmup-init-lr 1e-7 --stop-min-lr 1e-9 \
+--lr-scheduler inverse_sqrt --warmup-updates 4000 --optimizer adam \
+--adam-betas '(0.9, 0.999)' \
+--adam-eps 1e-6 --task translation_lev_modified --max-tokens 16384 \
+--weight-decay 0.01 --dropout 0.1 \
+--encoder-layers 6 --encoder-embed-dim 512 --decoder-layers 6 \
+--decoder-embed-dim 512 --fp16 \
+--max-source-positions 1000 --max-target-positions 1000 \
+--max-update 3000000 --seed 0 --clip-norm 5 \
+--save-dir ./java_saved_glat \
+--src-embedding-copy --length-loss-factor 0.05 --log-interval 1000 \         
+--eval-bleu --eval-bleu-args '{"iter_decode_max_iter": 0, "iter_decode_with_beam": 1}' \
+--eval-bleu-remove-bpe --best-checkpoint-metric bleu \
+--maximize-best-checkpoint-metric --decoder-learned-pos --encoder-learned-pos \
+--activation-fn gelu --user-dir glat_plugins \
+--valid-subset valid \
+--skip-invalid-size-inputs-valid-test --max-tokens-valid 4096 \
+```
+
+### Inference
+
+- AT 
+
+```
+fairseq-generate fairseq/py150_token_and_type --arch transformer --share-decoder-input-output-embed --tokenizer space\                                                                    
+--path fairseq/saved_models/checkpoints_at_transformer/checkpoint_best.pt \    
+--max-tokens 4096 --gen-subset test --beam 5 --remove-bpe \
+--skip-invalid-size-inputs-valid-test --quiet
+```
+
+- CMLM
+
+```
+fairseq-generate GLAT/data/py150_token_and_type --gen-subset test --task translation_lev --path fairseq/checkpoint_cmlm/checkpoint_best.pt --iter-decode-max-iter 5 --iter-decode-max-iter 5 \
+--iter-decode-eos-penalty 0 \                                                  
+--beam 5 --iter-decode-with-beam 2 --remove-bpe \          
+--print-step \                               
+--batch-size 32 --quiet \
+--skip-invalid-size-inputs-valid-test
+```
+
+- NACC
+
+```
+checkpoint_path=path_to_your_checkpoint
+python3 fairseq_cli/generate.py ./data/py150_token_and_type/ \
+--path ${checkpoint_path}checkpoint_best.pt --user-dir glat_plugins \
+--task translation_lev_modified --remove-bpe --max-tokens 2048 \
+--source-lang xtoken --target-lang ytoken \
+--iter-decode-max-iter 0 --iter-decode-eos-penalty 0 \
+--iter-decode-with-beam 1 --gen-subset test \
+--skip-invalid-size-inputs-valid-test --quiet
+
+```
+
+
+### Results
+
+- PY150
+
+| Model | BLEU4 | EM Accuracy | Edit Similarity | following1 Accuracy | inference time |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+|||  AT |||
+| LM [Wang et al] | 19.58 | 8.93 | 54.03 | - |
+| AT | 21.93 | 16.24 | 62.73 | - |
+|||  NAT |||
+| CMLM | | | | |
+| GLAT | 26.78 | 16.95 | 65.94 | 17.76 |
+| **NACC** | **29.07** | **18.35** | **66.9** | **19.19** | 
+
+- JAVA
+
+| Model | BLEU4 | EM Accuracy | Edit Similarity | following1 Accuracy | inference time |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+|||  AT |||
+| LM [Wang et al] |  |  |  | - |
+| AT |  |  |  | - |
+|||  NAT |||
+| CMLM | | | | |
+| GLAT |  |  |  |  |
+| **NACC** |  |  |  |  | 
+
+
+
+### TODO
+
+- JAVA experiments
+
+- Inference time 
+
+- Other metrics
+

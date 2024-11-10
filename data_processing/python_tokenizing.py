@@ -3,6 +3,7 @@ from StringIO import StringIO
 from operator import add
 import random
 import sys
+reload(sys)
 sys.setdefaultencoding('utf8')
 import keyword
 import json

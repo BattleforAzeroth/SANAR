@@ -133,7 +133,9 @@ class Glat(FairseqNATModel):
                             keyword_pos = keyword_positions[li][torch.randperm(keyword_positions[li].size(0))]
                             operator_pos = operator_positions[li][torch.randperm(operator_positions[li].size(0))]
                             name_pos = name_positions[li][torch.randperm(name_positions[li].size(0))]
-                            choosed_pos = torch.cat((keyword_pos[: target_num//2], operator_pos[: target_num//4], name_pos[: target_num//4]), 0)
+                            # choosed_pos = torch.cat((keyword_pos[: target_num//2], operator_pos[: target_num//4], name_pos[: target_num//4]), 0)
+                            choosed_pos = torch.cat((keyword_pos[: torch.div(target_num,2, rounding_mode='trunc')], operator_pos[: torch.div(target_num,4, rounding_mode='trunc')],
+                                                     name_pos[: torch.div(target_num,4, rounding_mode='trunc')]), 0)
                             input_mask[li].scatter_(dim=0, index=choosed_pos.cuda(), value=0)
                 
                 input_mask = input_mask.eq(1)
